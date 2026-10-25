@@ -1,0 +1,5 @@
+0 Healthy
+1 Early Blight
+2 Late Blight
+3 Leaf spot
+4 Powdery mildew
