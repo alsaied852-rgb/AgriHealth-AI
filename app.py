@@ -1,5 +1,6 @@
 
 import streamlit as st
+import tensorflow as tf
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 from tensorflow.keras.models import load_model
@@ -21,6 +22,11 @@ CLASS_NAMES = [
 @st.cache_resource
 def load_disease_model():
     return load_model("keras_model.h5", compile=False)
+
+
+@st.cache_resource
+def load_leaf_detector():
+    return load_model("leaf_detector_real.keras", compile=False)
 
 st.title("🌿 AgriHealth AI")
 st.subheader("Plant Disease Detection")
@@ -71,46 +77,77 @@ if uploaded_file is not None:
                     "before continuing."
                 )
             else:
-                with st.spinner("Analyzing image..."):
-                    model = load_disease_model()
+                with st.spinner("Checking image..."):
+                    detector = load_leaf_detector()
 
-                    resized_image = image.resize((224, 224))
-                    image_array = np.asarray(
-                        resized_image, dtype=np.float32
+                    detector_image = image.resize((160, 160))
+                    detector_array = np.asarray(
+                        detector_image, dtype=np.float32
                     )
-                    image_array = (image_array / 127.5) - 1.0
-                    image_array = np.expand_dims(image_array, axis=0)
-
-                    predictions = model.predict(
-                        image_array, verbose=0
-                    )[0]
-
-                    predicted_index = int(np.argmax(predictions))
-                    predicted_label = CLASS_NAMES[predicted_index]
-                    confidence = float(predictions[predicted_index]) * 100
-
-                st.markdown("### Prediction Result")
-                st.success(f"Predicted class: **{predicted_label}**")
-                st.metric("Model score", f"{confidence:.2f}%")
-
-                st.write("Scores for all classes:")
-                for index, class_name in enumerate(CLASS_NAMES):
-                    score = float(predictions[index])
-                    st.write(
-                        f"{class_name}: {score * 100:.2f}%"
+                    detector_array = (
+                        tf.keras.applications.mobilenet_v2
+                        .preprocess_input(detector_array)
                     )
-                    st.progress(max(0.0, min(1.0, score)))
+                    detector_array = np.expand_dims(
+                        detector_array, axis=0
+                    )
 
-                st.warning(
-                    "This result is a model prediction, not a confirmed "
-                    "agricultural diagnosis. The model score is not the "
-                    "probability that the result is correct or a measure "
-                    "of overall model accuracy. The model may be confidently "
-                    "wrong, especially for non-plant images, other plant "
-                    "species, poor-quality images, or conditions outside "
-                    "its training data. Do not use this result alone to "
-                    "choose pesticides or treatment."
-                )
+                    plant_score = float(
+                        detector.predict(detector_array, verbose=0)[0][0]
+                    )
+
+                if plant_score < 0.70:
+                    st.error(
+                        "This image may not show a plant. "
+                        "Please upload a clear photo of a plant leaf."
+                    )
+                    st.caption(
+                        f"Plant detector score: {plant_score * 100:.1f}%"
+                    )
+                else:
+                    with st.spinner("Analyzing plant disease..."):
+                        model = load_disease_model()
+
+                        resized_image = image.resize((224, 224))
+                        image_array = np.asarray(
+                            resized_image, dtype=np.float32
+                        )
+                        image_array = (image_array / 127.5) - 1.0
+                        image_array = np.expand_dims(image_array, axis=0)
+
+                        predictions = model.predict(
+                            image_array, verbose=0
+                        )[0]
+
+                        predicted_index = int(np.argmax(predictions))
+                        predicted_label = CLASS_NAMES[predicted_index]
+                        confidence = (
+                            float(predictions[predicted_index]) * 100
+                        )
+
+                    st.markdown("### Prediction Result")
+                    st.success(
+                        f"Predicted class: **{predicted_label}**"
+                    )
+                    st.metric("Model score", f"{confidence:.2f}%")
+
+                    st.write("Scores for all classes:")
+                    for index, class_name in enumerate(CLASS_NAMES):
+                        score = float(predictions[index])
+                        st.write(f"{class_name}: {score * 100:.2f}%")
+                        st.progress(max(0.0, min(1.0, score)))
+
+                    st.warning(
+                        "This result is a model prediction, not a confirmed "
+                        "agricultural diagnosis. The model score is not the "
+                        "probability that the result is correct or a measure "
+                        "of overall model accuracy. The model may be confidently "
+                        "wrong, especially for non-plant images, other plant "
+                        "species, poor-quality images, or conditions outside "
+                        "its training data. Do not use this result alone to "
+                        "choose pesticides or treatment."
+                    )
+
 
     except (UnidentifiedImageError, OSError):
         st.error(
