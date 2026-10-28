@@ -1,6 +1,7 @@
+
 import streamlit as st
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from tensorflow.keras.models import load_model
 
 st.set_page_config(
@@ -19,69 +20,109 @@ CLASS_NAMES = [
 
 @st.cache_resource
 def load_disease_model():
-    # The model was exported from Teachable Machine in Keras (.h5) format.
     return load_model("keras_model.h5", compile=False)
 
 st.title("🌿 AgriHealth AI")
 st.subheader("Plant Disease Detection")
+
 st.write(
-    "Upload a clear photo of a plant leaf. The trained model will predict "
-    "one of the five classes below."
+    "Upload a clear photo showing a single plant leaf. "
+    "The model predicts one of five classes."
+)
+
+st.info(
+    "Important: Upload a plant-leaf image only. This model does not "
+    "verify whether an image contains a plant and may give incorrect "
+    "predictions for objects, people, or unrelated images."
 )
 
 st.caption(
-    "Classes: 0 Healthy · 1 Early Blight · 2 Late Blight · "
-    "3 Leaf spot · 4 Powdery mildew"
+    "Classes: Healthy · Early Blight · Late Blight · "
+    "Leaf spot · Powdery mildew"
 )
 
 uploaded_file = st.file_uploader(
-    "Upload a leaf image",
+    "Upload a plant leaf image",
     type=["jpg", "jpeg", "png"]
 )
 
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Uploaded image", use_container_width=True)
+        st.image(
+            image,
+            caption="Uploaded image — check that it clearly shows a plant leaf",
+            use_container_width=True
+        )
+
+        st.warning(
+            "Before analyzing, confirm that the image clearly shows "
+            "a plant leaf. This confirmation is not an automatic image check."
+        )
+
+        user_confirms_leaf = st.checkbox(
+            "I confirm this image clearly shows a plant leaf."
+        )
 
         if st.button("Analyze Image", type="primary"):
-            with st.spinner("Analyzing image..."):
-                model = load_disease_model()
+            if not user_confirms_leaf:
+                st.error(
+                    "Please confirm that the image shows a plant leaf "
+                    "before continuing."
+                )
+            else:
+                with st.spinner("Analyzing image..."):
+                    model = load_disease_model()
 
-                # Teachable Machine Keras image models expect 224x224 RGB
-                # pixels normalized to the range [-1, 1].
-                resized_image = image.resize((224, 224))
-                image_array = np.asarray(resized_image, dtype=np.float32)
-                image_array = (image_array / 127.5) - 1.0
-                image_array = np.expand_dims(image_array, axis=0)
+                    resized_image = image.resize((224, 224))
+                    image_array = np.asarray(
+                        resized_image, dtype=np.float32
+                    )
+                    image_array = (image_array / 127.5) - 1.0
+                    image_array = np.expand_dims(image_array, axis=0)
 
-                predictions = model.predict(image_array, verbose=0)[0]
-                predicted_index = int(np.argmax(predictions))
-                predicted_label = CLASS_NAMES[predicted_index]
-                confidence = float(predictions[predicted_index]) * 100
+                    predictions = model.predict(
+                        image_array, verbose=0
+                    )[0]
 
-            st.markdown("### Prediction Result")
-            st.success(f"Predicted class: **{predicted_label}**")
-            st.metric("Confidence", f"{confidence:.2f}%")
-            st.write("Confidence scores for all classes:")
+                    predicted_index = int(np.argmax(predictions))
+                    predicted_label = CLASS_NAMES[predicted_index]
+                    confidence = float(predictions[predicted_index]) * 100
 
-            for index, class_name in enumerate(CLASS_NAMES):
-                score = float(predictions[index])
-                st.write(f"{index} — {class_name}: {score * 100:.2f}%")
-                st.progress(max(0.0, min(1.0, score)))
+                st.markdown("### Prediction Result")
+                st.success(f"Predicted class: **{predicted_label}**")
+                st.metric("Model score", f"{confidence:.2f}%")
 
-            st.warning(
-                "This is a model prediction, not a confirmed agricultural diagnosis. "
-                "Confidence is not the same as overall model accuracy. Results may "
-                "be unreliable for unclear images, other plant species, or conditions "
-                "not represented in the training data."
-            )
+                st.write("Scores for all classes:")
+                for index, class_name in enumerate(CLASS_NAMES):
+                    score = float(predictions[index])
+                    st.write(
+                        f"{class_name}: {score * 100:.2f}%"
+                    )
+                    st.progress(max(0.0, min(1.0, score)))
+
+                st.warning(
+                    "This result is a model prediction, not a confirmed "
+                    "agricultural diagnosis. The model score is not the "
+                    "probability that the result is correct or a measure "
+                    "of overall model accuracy. The model may be confidently "
+                    "wrong, especially for non-plant images, other plant "
+                    "species, poor-quality images, or conditions outside "
+                    "its training data. Do not use this result alone to "
+                    "choose pesticides or treatment."
+                )
+
+    except (UnidentifiedImageError, OSError):
+        st.error(
+            "The uploaded file could not be read as an image. "
+            "Please upload a valid JPG, JPEG, or PNG file."
+        )
     except Exception as error:
         st.error(
-            "The image could not be analyzed. Check that keras_model.h5 and "
-            "labels.txt are in the same folder as app.py and that the required "
-            "packages are installed."
+            "The image could not be analyzed. Check that keras_model.h5 "
+            "is available and that the required packages are installed."
         )
         st.exception(error)
+
 else:
     st.info("Choose a JPG, JPEG, or PNG image to begin.")
